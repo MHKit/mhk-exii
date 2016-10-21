@@ -13,10 +13,36 @@
 
 #define MEDIAN_MAX_SIZE     41
 
-Servo servo;
-unsigned long t = 0;
-
 unsigned long counter = 0;
+
+struct finger {
+  Servo servo;
+  float min;
+  float max;
+
+  float angle;
+  RunningMedian median = RunningMedian(3);
+
+  unsigned long lastUpdate;
+};
+
+void setupFinger(struct finger *f, int pin, float min, float max) {
+  f->servo.attach(pin);
+  f->min = min;
+  f->max = max;
+  f->angle = min + (max - min) / 2;
+  f->lastUpdate = millis();
+}
+
+void loopFinger(struct finger *f) {
+  f->angle = min(f->max, max(f->min, f->angle));
+  f->median.add(f->angle);
+
+  if (millis() - f->lastUpdate > 15) {
+    f->lastUpdate = millis();
+    f->servo.write(f->median.getAverage());
+  }
+}
 
 #define MYO_IDLE 0
 #define MYO_ACTIVE 1
@@ -31,6 +57,10 @@ struct myo {
   int pin;
   float minimumThreshold;
 };
+
+void setupMyo(struct myo *m, int pin) {
+  m->pin = pin;
+}
 
 void loopMyo(struct myo *m) {
   m->shortMedian.add(analogRead(m->pin));
@@ -51,56 +81,61 @@ void loopMyo(struct myo *m) {
   }
 }
 
+void resetMyo(struct myo *m) {
+  m->state = MYO_IDLE;
+  m->minimumThreshold = 0;
+  m->shortMedian.clear();
+  m->longMedian.clear();
+  m->diffMedian.clear();
+  m->minDiffMedian.clear();
+}
+
 struct myo m1;
 struct myo m2;
 
-RunningMedian servoMedian = RunningMedian(3);
+struct finger thumb;
+struct finger index;
+struct finger middle;
 
-// the setup routine runs once when you press reset:
 void setup() {
-  // initialize serial communication at 9600 bits per second:
-  pinMode(9, OUTPUT);
-
-  servo.attach(3);
-
-  m1.pin = A0;
-  m2.pin = A1;
-
-  t = millis();
+  pinMode(7, INPUT);
+  digitalWrite(7, HIGH);
   
+  setupMyo(&m1, A0);
+  setupMyo(&m2, A6);
+
+  setupFinger(&thumb, 6, 60, 158);
+  setupFinger(&index, 3, 27, 150);
+  setupFinger(&middle, 5, 35, 150);
+
   Serial.begin(115200);
 }
 
-float servoPos = 90;
-
 void loop() {
+  if (digitalRead(7) == LOW) {
+    resetMyo(&m1);
+    resetMyo(&m2);
+  }
+  
   loopMyo(&m1);
   loopMyo(&m2);
-  /*analogWrite(9, myoState == MYO_ACTIVE ? map(shortMedian.getMedian() - minimumThreshold, 0, 1024, 0, 255) : 0);
-  if (myoState == MYO_ACTIVE && millis() - t > 30) {
-    t = millis();
-    servo.write(map(shortMedian.getMedian() - minimumThreshold, 0, 1024, 0, 180));
-  }*/
 
   if (!(m1.state && m2.state)) { 
     if (m1.state == MYO_ACTIVE) {
-      servoPos += m1.minDiffMedian.getMedian() / 400;
+      index.angle += m1.minDiffMedian.getMedian() / 700;
+      middle.angle = map(index.angle, index.min, index.max, middle.max, middle.min);
     }
   
     if (m2.state == MYO_ACTIVE) {
-      servoPos -= m2.minDiffMedian.getMedian() / 400;
+      index.angle -= m2.minDiffMedian.getMedian() / 700;
+      middle.angle = map(index.angle, index.min, index.max, middle.max, middle.min);
     }
   }
 
-  servoPos = min(102, max(35, servoPos));
-  servoMedian.add(servoPos);
+  loopFinger(&thumb);
+  loopFinger(&index);
+  loopFinger(&middle);
 
-  if (millis() - t > 15) {
-    t = millis();
-    servo.write(servoMedian.getAverage());
-  }
-
-  //Serial.print(servoMedian.getAverage());
   Serial.print(m1.shortMedian.getMedian());
   Serial.print(", ");
   Serial.print(m1.minimumThreshold);
@@ -108,6 +143,7 @@ void loop() {
   Serial.print(m2.shortMedian.getMedian());
   Serial.print(", ");
   Serial.print(m2.minimumThreshold);
+  //Serial.print(index.median.getMedian());
   Serial.println();
   ++counter;
 }
