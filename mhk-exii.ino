@@ -19,6 +19,7 @@
 #define ACTIVE_EDGE_DETECTION 10 // if the sensor is idle and a difference greater than this value is detected, switch to MYO_ACTIVE state
 #define IDLE_EDGE_DETECTION 15   // if the sensor is active and its value goes back to its (pre-active value + 15) or lower, switch back to MYO_IDLE state
 #define SERVO_TICK_MS 15         // servo value update cycle
+#define THUMB_CONTROL_THRESHOLD 20.0f/100.0f
 
 // tick counter
 unsigned long counter = 0;
@@ -151,13 +152,19 @@ void loop() {
     resetMyo(&m2);
   }
 
-  // if a sensor turns active, set the other one to MYO_IDLE
+  // update sensors values
   loopMyo(&m1);
   loopMyo(&m2);
 
+  /**
+   * Hand control here
+   * ===================================
+   * If you want to customize current hand "gameplay", change code below
+   */
+
   // both sensors at once and a difference < 20%: thumb control
   if (m1.state == MYO_ACTIVE && m2.state == MYO_ACTIVE &&
-      fabs(m1.minDiffMedian.getMedian() - m2.minDiffMedian.getMedian()) < max(m1.minDiffMedian.getMedian(), m2.minDiffMedian.getMedian()) / 5) {
+      fabs(m1.minDiffMedian.getMedian() - m2.minDiffMedian.getMedian()) < max(m1.minDiffMedian.getMedian(), m2.minDiffMedian.getMedian()) * THUMB_CONTROL_THRESHOLD) {
     if (millis() - lastThumbMove > 2000) {
       thumb.angle = thumb.angle == thumb.min ? thumb.max : thumb.min;
       lastThumbMove = millis();
@@ -174,6 +181,11 @@ void loop() {
       middle.angle = map(index.angle, index.min, index.max, middle.min, middle.max);
     }
   }
+
+  /**
+   * End of Hand control
+   * ===================================
+   */
 
   // Finger loop functions
   loopFinger(&thumb);
